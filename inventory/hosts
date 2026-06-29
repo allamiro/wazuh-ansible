@@ -1,0 +1,45 @@
+# Distributed HA Wazuh — 4.14.5 (no HAProxy)
+#
+# Per-host vars:
+#   ansible_host          SSH / management IP Ansible connects to
+#   private_ip            address for intra-cluster traffic + /etc/hosts
+#   node_fqdn             OS hostname applied to the box (README tier naming)
+#   indexer_node_name     OpenSearch node name (indexers only; MUST match the
+#                         node's "name" in the instances cert manifest)
+#   filebeat_node_name    Filebeat/cert node name (managers only; MUST match
+#                         the node's "name" in the instances cert manifest)
+#   wazuh_cluster_node_name  Wazuh server cluster node name (managers only)
+#
+# In a flat subnet ansible_host and private_ip are identical (as below).
+
+[indexer_hot]
+indexer-hot-1 ansible_host=10.0.100.40 private_ip=10.0.100.40 node_fqdn=indexer-hot-1.local.domain indexer_node_name=indexer-hot-1
+indexer-hot-2 ansible_host=10.0.100.41 private_ip=10.0.100.41 node_fqdn=indexer-hot-2.local.domain indexer_node_name=indexer-hot-2
+indexer-hot-3 ansible_host=10.0.100.42 private_ip=10.0.100.42 node_fqdn=indexer-hot-3.local.domain indexer_node_name=indexer-hot-3
+
+[indexer_warm]
+indexer-warm-1 ansible_host=10.0.100.50 private_ip=10.0.100.50 node_fqdn=indexer-warm-1.local.domain indexer_node_name=indexer-warm-1
+
+[indexer_cold]
+indexer-cold-1 ansible_host=10.0.100.60 private_ip=10.0.100.60 node_fqdn=indexer-cold-1.local.domain indexer_node_name=indexer-cold-1
+
+# All indexers form ONE OpenSearch cluster (no hot/warm/cold tiering yet).
+[indexer_cluster:children]
+indexer_hot
+indexer_warm
+indexer_cold
+
+[wazuh_manager_master]
+manager-master-1 ansible_host=10.0.100.70 private_ip=10.0.100.70 node_fqdn=manager-master-1.local.domain filebeat_node_name=manager-master-1 wazuh_cluster_node_name=master
+
+[wazuh_manager_worker]
+manager-worker-1 ansible_host=10.0.100.71 private_ip=10.0.100.71 node_fqdn=manager-worker-1.local.domain filebeat_node_name=manager-worker-1 wazuh_cluster_node_name=worker_01
+manager-worker-2 ansible_host=10.0.100.72 private_ip=10.0.100.72 node_fqdn=manager-worker-2.local.domain filebeat_node_name=manager-worker-2 wazuh_cluster_node_name=worker_02
+
+# Convenience parent group for both master and workers
+[wazuh_managers:children]
+wazuh_manager_master
+wazuh_manager_worker
+
+[wazuh_dashboard]
+dashboard-2 ansible_host=10.0.100.30 private_ip=10.0.100.30 node_fqdn=dashboard-2.local.domain

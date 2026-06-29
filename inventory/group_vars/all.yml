@@ -1,0 +1,53 @@
+---
+# ---------------------------------------------------------------------------
+# Connection (Rocky Linux 9)
+# ---------------------------------------------------------------------------
+ansible_user: tsuliman                    # SSH user
+ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+ansible_python_interpreter: /usr/bin/python3
+
+# ---------------------------------------------------------------------------
+# Indexer tier helpers (consumed by the plays, not the roles directly, so the
+# names do not collide with the role var "indexer_cluster_nodes" — which means
+# NODE NAMES for the indexer role but IPs for the dashboard role).
+# ---------------------------------------------------------------------------
+idx_node_names:
+  - indexer-hot-1
+  - indexer-hot-2
+  - indexer-hot-3
+  - indexer-warm-1
+  - indexer-cold-1
+
+idx_node_ips:
+  - "{{ hostvars['indexer-hot-1'].private_ip }}"
+  - "{{ hostvars['indexer-hot-2'].private_ip }}"
+  - "{{ hostvars['indexer-hot-3'].private_ip }}"
+  - "{{ hostvars['indexer-warm-1'].private_ip }}"
+  - "{{ hostvars['indexer-cold-1'].private_ip }}"
+
+# ---------------------------------------------------------------------------
+# Certificate manifest — one self-signed cert generated per "name".
+#   * indexer "name" MUST equal that host's indexer_node_name
+#   * wazuh   "name" MUST equal that host's filebeat_node_name
+#   * dashboard "name" MUST equal dashboard_node_name in the dashboard play
+# generate_certs defaults to true, so no manual SSL work is required.
+# ---------------------------------------------------------------------------
+instances:
+  node1: { name: indexer-hot-1,    ip: "{{ hostvars['indexer-hot-1'].private_ip }}",    role: indexer }
+  node2: { name: indexer-hot-2,    ip: "{{ hostvars['indexer-hot-2'].private_ip }}",    role: indexer }
+  node3: { name: indexer-hot-3,    ip: "{{ hostvars['indexer-hot-3'].private_ip }}",    role: indexer }
+  node4: { name: indexer-warm-1,   ip: "{{ hostvars['indexer-warm-1'].private_ip }}",   role: indexer }
+  node5: { name: indexer-cold-1,   ip: "{{ hostvars['indexer-cold-1'].private_ip }}",   role: indexer }
+  node6: { name: manager-master-1, ip: "{{ hostvars['manager-master-1'].private_ip }}", role: wazuh, node_type: master }
+  node7: { name: manager-worker-1, ip: "{{ hostvars['manager-worker-1'].private_ip }}", role: wazuh, node_type: worker }
+  node8: { name: manager-worker-2, ip: "{{ hostvars['manager-worker-2'].private_ip }}", role: wazuh, node_type: worker }
+  node9: { name: dashboard-2,      ip: "{{ hostvars['dashboard-2'].private_ip }}",      role: dashboard }
+
+# Filebeat on every manager ships to all 5 indexers
+filebeat_output_indexer_hosts: "{{ idx_node_ips }}"
+
+# Wazuh server cluster shared key — CHANGE THIS for production (32 hex chars)
+wazuh_cluster_key: "c98b62a9b6169ac5f67dae55ae4a9088"
+
+# Address the dashboard uses for the Wazuh API (the master)
+manager_master_ip: "{{ hostvars['manager-master-1'].private_ip }}"

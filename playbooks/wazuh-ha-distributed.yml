@@ -1,0 +1,145 @@
+---
+# ===========================================================================
+# Distributed HA Wazuh 4.14.5 — core cluster (no HAProxy, no hot/warm/cold)
+#
+# Topology:
+#   - 5 indexers  : hot x3, warm x1, cold x1   (one OpenSearch cluster)
+#   - Wazuh server: 1 master + 2 workers       (+ filebeat on each)
+#   - 1 dashboard
+#
+# Shared data (instances cert manifest, indexer IP/name lists, cluster key)
+# lives in inventory/group_vars/all.yml. Certificates are auto-generated.
+#
+# Run from the repo root:
+#   ansible-playbook playbooks/wazuh-ha-distributed.yml -b -k -K
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# 0) Set OS hostnames + populate /etc/hosts on every node (idempotent)
+# ---------------------------------------------------------------------------
+- name: Set hostnames and populate /etc/hosts cluster-wide
+  hosts: all
+  become: true
+  tasks:
+    - name: Set the system hostname to its tier FQDN
+      ansible.builtin.hostname:
+        name: "{{ node_fqdn }}"
+
+    - name: Ensure /etc/hosts has an entry for every cluster node
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "\\b{{ hostvars[item].node_fqdn | regex_escape }}\\b"
+        line: "{{ hostvars[item].private_ip }} {{ hostvars[item].node_fqdn }} {{ hostvars[item].node_fqdn.split('.')[0] }}"
+        state: present
+      loop: "{{ groups['all'] }}"
+      loop_control:
+        label: "{{ hostvars[item].node_fqdn }}"
+
+# ---------------------------------------------------------------------------
+# 1) Generate all certificates locally (no install on this pass)
+# ---------------------------------------------------------------------------
+- name: Generate Wazuh cluster certificates
+  hosts: indexer-hot-1
+  become: false
+  roles:
+    - role: ../roles/wazuh/wazuh-indexer
+      indexer_network_host: "{{ private_ip }}"
+      indexer_cluster_nodes: "{{ idx_node_names }}"
+      indexer_discovery_nodes: "{{ idx_node_ips }}"
+      perform_installation: false
+  vars:
+    indexer_node_master: true
+  tags:
+    - generate-certs
+
+# ---------------------------------------------------------------------------
+# 2) Install + configure the Wazuh indexer cluster (all 5 nodes)
+# ---------------------------------------------------------------------------
+- name: Configure Wazuh indexer cluster
+  hosts: indexer_cluster
+  strategy: free
+  become: true
+  roles:
+    - role: ../roles/wazuh/wazuh-indexer
+      indexer_network_host: "{{ private_ip }}"
+  vars:
+    indexer_node_master: true
+    minimum_master_nodes: 3
+    indexer_cluster_nodes: "{{ idx_node_names }}"
+    indexer_discovery_nodes: "{{ idx_node_ips }}"
+
+# ---------------------------------------------------------------------------
+# 3) Wazuh server — master (+ filebeat)
+# ---------------------------------------------------------------------------
+- name: Configure Wazuh manager (master)
+  hosts: wazuh_manager_master
+  become: true
+  roles:
+    - role: ../roles/wazuh/ansible-wazuh-manager
+    - role: ../roles/wazuh/ansible-filebeat-oss
+  vars:
+    wazuh_manager_config:
+      connection:
+        - type: 'secure'
+          port: '1514'
+          protocol: 'tcp'
+          queue_size: 131072
+      api:
+        https: 'yes'
+      cluster:
+        disable: 'no'
+        node_name: "{{ wazuh_cluster_node_name }}"
+        node_type: 'master'
+        key: "{{ wazuh_cluster_key }}"
+        nodes:
+          - "{{ manager_master_ip }}"
+        hidden: 'no'
+
+# ---------------------------------------------------------------------------
+# 4) Wazuh server — workers (+ filebeat)
+#    filebeat_node_name and wazuh_cluster_node_name come from inventory,
+#    so this single group play configures both workers correctly.
+# ---------------------------------------------------------------------------
+- name: Configure Wazuh manager (workers)
+  hosts: wazuh_manager_worker
+  become: true
+  roles:
+    - role: ../roles/wazuh/ansible-wazuh-manager
+    - role: ../roles/wazuh/ansible-filebeat-oss
+  vars:
+    wazuh_manager_config:
+      connection:
+        - type: 'secure'
+          port: '1514'
+          protocol: 'tcp'
+          queue_size: 131072
+      api:
+        https: 'yes'
+      cluster:
+        disable: 'no'
+        node_name: "{{ wazuh_cluster_node_name }}"
+        node_type: 'worker'
+        key: "{{ wazuh_cluster_key }}"
+        nodes:
+          - "{{ manager_master_ip }}"
+        hidden: 'no'
+
+# ---------------------------------------------------------------------------
+# 5) Wazuh dashboard
+# ---------------------------------------------------------------------------
+- name: Configure Wazuh dashboard
+  hosts: wazuh_dashboard
+  become: true
+  roles:
+    - role: ../roles/wazuh/wazuh-dashboard
+  vars:
+    indexer_network_host: "{{ idx_node_ips | first }}"
+    indexer_cluster_nodes: "{{ idx_node_ips }}"
+    dashboard_node_name: dashboard-2
+    wazuh_api_credentials:
+      - id: default
+        url: "https://{{ manager_master_ip }}"
+        port: 55000
+        username: "wazuh-wui"
+        password: "wazuh-wui"
+    ansible_shell_allow_world_readable_temp: true
