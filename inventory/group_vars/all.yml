@@ -1,0 +1,49 @@
+---
+# ---------------------------------------------------------------------------
+# Connection settings (Rocky Linux 9)
+# ---------------------------------------------------------------------------
+ansible_user: tsuliman                    # SSH user
+ansible_ssh_common_args: '-o StrictHostKeyChecking=no'
+ansible_python_interpreter: /usr/bin/python3
+
+# ---------------------------------------------------------------------------
+# Cluster topology / certificate manifest (shared by every play)
+#
+# - Keys MUST equal the inventory_hostname of each node; the roles look up
+#   instances[inventory_hostname].name.
+# - generate_certs defaults to true, so a self-signed cert is created per
+#   "name" automatically. No manual SSL setup required.
+# ---------------------------------------------------------------------------
+instances:
+  indexer-hot-1:  { name: indexer-hot-1,  ip: "{{ hostvars['indexer-hot-1'].private_ip }}",  role: indexer }
+  indexer-hot-2:  { name: indexer-hot-2,  ip: "{{ hostvars['indexer-hot-2'].private_ip }}",  role: indexer }
+  indexer-hot-3:  { name: indexer-hot-3,  ip: "{{ hostvars['indexer-hot-3'].private_ip }}",  role: indexer }
+  indexer-warm-1: { name: indexer-warm-1, ip: "{{ hostvars['indexer-warm-1'].private_ip }}", role: indexer }
+  indexer-cold-1: { name: indexer-cold-1, ip: "{{ hostvars['indexer-cold-1'].private_ip }}", role: indexer }
+  manager:        { name: manager,        ip: "{{ hostvars['manager'].private_ip }}",        role: manager, node_type: master }
+  worker-1:       { name: worker-1,       ip: "{{ hostvars['worker-1'].private_ip }}",       role: manager, node_type: worker }
+  worker-2:       { name: worker-2,       ip: "{{ hostvars['worker-2'].private_ip }}",       role: manager, node_type: worker }
+  dashboard:      { name: dashboard,      ip: "{{ hostvars['dashboard'].private_ip }}",      role: dashboard }
+
+# ---------------------------------------------------------------------------
+# Where the managers reach the indexer tier (consumed by wazuh-manager role)
+# ---------------------------------------------------------------------------
+wazuh_indexer_hosts:
+  - { host: "{{ hostvars['indexer-hot-1'].private_ip }}",  port: 9200 }
+  - { host: "{{ hostvars['indexer-hot-2'].private_ip }}",  port: 9200 }
+  - { host: "{{ hostvars['indexer-hot-3'].private_ip }}",  port: 9200 }
+  - { host: "{{ hostvars['indexer-warm-1'].private_ip }}", port: 9200 }
+  - { host: "{{ hostvars['indexer-cold-1'].private_ip }}", port: 9200 }
+
+# ---------------------------------------------------------------------------
+# Where the dashboard reaches the indexer tier (consumed by wazuh-dashboard)
+# ---------------------------------------------------------------------------
+indexer_cluster_nodes:
+  - "{{ hostvars['indexer-hot-1'].private_ip }}"
+  - "{{ hostvars['indexer-hot-2'].private_ip }}"
+  - "{{ hostvars['indexer-hot-3'].private_ip }}"
+  - "{{ hostvars['indexer-warm-1'].private_ip }}"
+  - "{{ hostvars['indexer-cold-1'].private_ip }}"
+
+# Wazuh server (master) the dashboard's API connector points at
+wazuh_manager_master_address: "{{ hostvars['manager'].private_ip }}"

@@ -1,4 +1,36 @@
 ---
+# ===========================================================================
+# Distributed HA Wazuh — core cluster (no HAProxy, no hot/warm/cold tiering)
+#
+# Topology:
+#   - 5 indexers  : hot x3, warm x1, cold x1  (one OpenSearch cluster)
+#   - Wazuh server: 1 master + 2 workers
+#   - 1 dashboard
+#
+# Shared topology (instances / indexer hosts / dashboard targets) is defined
+# once in inventory/group_vars/all.yml so every play sees it.
+# Self-signed certificates are generated automatically (generate_certs=true).
+#
+# Run:  ansible-playbook wazuh-distributed.yml -b -K
+# ===========================================================================
+
+- name: Set hostnames and populate /etc/hosts cluster-wide
+  hosts: all
+  become: true
+  tasks:
+    - name: Set the system hostname to its tier FQDN
+      ansible.builtin.hostname:
+        name: "{{ node_fqdn }}"
+
+    - name: Ensure /etc/hosts has an entry for every cluster node
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: "\\b{{ hostvars[item].node_fqdn | regex_escape }}\\b"
+        line: "{{ hostvars[item].private_ip }} {{ hostvars[item].node_fqdn }} {{ hostvars[item].node_fqdn.split('.')[0] }}"
+        state: present
+      loop: "{{ groups['all'] }}"
+      loop_control:
+        label: "{{ hostvars[item].node_fqdn }}"
 
 - name: Configure package URLs
   hosts: localhost
@@ -8,81 +40,33 @@
   become: false
 
 - name: Configure Wazuh Indexer cluster
-  hosts: wi_cluster
+  hosts: indexer_cluster
+  become: true
   roles:
     - role: wazuh-indexer
-  become: true
-  vars:
-    # generate_certs: false                    # Set to false if you are using your own certificates
-    instances:
-      wi1:                                     # Must be same as inventory hostname
-        name: indexer
-        ip: "{{ hostvars.wi1.private_ip }}"
-        role: indexer
-      wi2:
-        name: indexer-2
-        ip: "{{ hostvars.wi2.private_ip }}"
-        role: indexer
-      wi3:
-        name: indexer-3
-        ip: "{{ hostvars.wi3.private_ip }}"
-        role: indexer
-      manager:
-        name: manager
-        ip: "{{ hostvars.manager.private_ip }}"
-        role: manager
-        node_type: master
-      worker:
-        name: manager-2
-        ip: "{{ hostvars.worker.private_ip }}"
-        role: manager
-        node_type: worker
-      dashboard:
-        name: dashboard
-        ip: "{{ hostvars.dashboard.private_ip }}"
-        role: dashboard
 
-- name: Configure Wazuh Manager
-  hosts: manager
+- name: Configure Wazuh Manager (master)
+  hosts: wazuh_manager_master
+  become: true
   roles:
     - role: wazuh-manager
-  become: true
   vars:
     node_type: "master"
-    manager_node_name: "manager"
-    wazuh_indexer_hosts:
-      - host: "{{ hostvars.wi1.private_ip }}"
-        port: 9200
-      - host: "{{ hostvars.wi2.private_ip }}"
-        port: 9200
-      - host: "{{ hostvars.wi3.private_ip }}"
-        port: 9200
+    manager_node_name: "{{ instances[inventory_hostname].name }}"
 
-- name: Configure Wazuh Worker
-  hosts: worker
+- name: Configure Wazuh Manager (workers)
+  hosts: wazuh_manager_worker
+  become: true
   roles:
     - role: wazuh-manager
-  become: true
   vars:
     node_type: "worker"
-    manager_node_name: "manager-2"
-    wazuh_indexer_hosts:
-      - host: "{{ hostvars.wi1.private_ip }}"
-        port: 9200
-      - host: "{{ hostvars.wi2.private_ip }}"
-        port: 9200
-      - host: "{{ hostvars.wi3.private_ip }}"
-        port: 9200
+    manager_node_name: "{{ instances[inventory_hostname].name }}"
 
 - name: Configure Wazuh Dashboard
-  hosts: dashboard
+  hosts: wazuh_dashboard
+  become: true
   roles:
     - role: wazuh-dashboard
-  become: true
   vars:
-    dashboard_node_name: "dashboard"
-    wazuh_manager_master_address: "{{ hostvars.manager.private_ip }}"
-    indexer_cluster_nodes:
-      - "{{ hostvars.wi1.private_ip }}"
-      - "{{ hostvars.wi2.private_ip }}"
-      - "{{ hostvars.wi3.private_ip }}"
+    dashboard_node_name: "{{ instances[inventory_hostname].name }}"

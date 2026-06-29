@@ -1,0 +1,40 @@
+# Distributed HA Wazuh — core cluster inventory (no HAProxy)
+#
+# ansible_host = SSH / management IP used by Ansible to connect.
+# private_ip   = address used for intra-cluster traffic (indexer transport,
+#                manager cluster, dashboard -> indexer) and for /etc/hosts.
+# node_fqdn    = OS hostname applied to the box + name written into /etc/hosts
+#                on every node (matches the README tier naming).
+# In a single flat subnet ansible_host and private_ip are identical (as below).
+#
+# IMPORTANT: the master's inventory hostname MUST be "manager" — the
+# wazuh-manager role hardcodes hostvars["manager"]. Its real name/IP live in
+# node_fqdn / ansible_host.
+
+[indexer_hot]
+indexer-hot-1 ansible_host=10.0.100.40 private_ip=10.0.100.40 node_fqdn=indexer-hot-1.local.domain
+indexer-hot-2 ansible_host=10.0.100.41 private_ip=10.0.100.41 node_fqdn=indexer-hot-2.local.domain
+indexer-hot-3 ansible_host=10.0.100.42 private_ip=10.0.100.42 node_fqdn=indexer-hot-3.local.domain
+
+[indexer_warm]
+indexer-warm-1 ansible_host=10.0.100.50 private_ip=10.0.100.50 node_fqdn=indexer-warm-1.local.domain
+
+[indexer_cold]
+indexer-cold-1 ansible_host=10.0.100.60 private_ip=10.0.100.60 node_fqdn=indexer-cold-1.local.domain
+
+# All indexers form ONE OpenSearch cluster. (hot/warm/cold tiering is NOT
+# applied in this core-first deployment — they are 5 equal indexer nodes.)
+[indexer_cluster:children]
+indexer_hot
+indexer_warm
+indexer_cold
+
+[wazuh_manager_master]
+manager ansible_host=10.0.100.70 private_ip=10.0.100.70 node_fqdn=manager-master-1.local.domain
+
+[wazuh_manager_worker]
+worker-1 ansible_host=10.0.100.71 private_ip=10.0.100.71 node_fqdn=manager-worker-1.local.domain
+worker-2 ansible_host=10.0.100.72 private_ip=10.0.100.72 node_fqdn=manager-worker-2.local.domain
+
+[wazuh_dashboard]
+dashboard ansible_host=10.0.100.30 private_ip=10.0.100.30 node_fqdn=dashboard-2.local.domain
