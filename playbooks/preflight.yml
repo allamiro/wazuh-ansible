@@ -1,0 +1,86 @@
+---
+# Checks, before the Wazuh playbooks run, what makes a deployment from the public Wazuh repositories
+# fail halfway: a target that cannot reach packages.wazuh.com, a Wazuh signing key that is not the
+# expected one, a control node without what the certificates tool needs, hosts short of memory.
+#
+#   ansible-playbook -i inventory preflight.yml
+#
+# Set wazuh_preflight_proxy (for example http://proxy:3128) when the targets reach the internet
+# through a proxy; the same proxy then has to be configured for apt/dnf on them.
+  - hosts: localhost
+    connection: local
+    gather_facts: false
+    vars:
+      wazuh_gpg_key_url: https://packages.wazuh.com/key/GPG-KEY-WAZUH
+      wazuh_gpg_key_fingerprint: 0DCFCA5547B19D2A6099506096B3EE5F29111145
+    tasks:
+      - name: Control node | Check the tools the certificates tool and this check need
+        command: "which {{ item }}"
+        loop: [openssl, bash, gpg]
+        changed_when: false
+
+      - name: Control node | Check that ansible.windows is installed (the agent role needs it)
+        command: ansible-galaxy collection list ansible.windows
+        register: wazuh_preflight_collection
+        changed_when: false
+        failed_when: "'ansible.windows' not in wazuh_preflight_collection.stdout"
+
+      - name: Control node | Download the Wazuh GPG key
+        get_url:
+          url: "{{ wazuh_gpg_key_url }}"
+          dest: "{{ playbook_dir }}/.preflight-GPG-KEY-WAZUH"
+          mode: '0644'
+          force: true
+
+      - name: Control node | Read the fingerprint of the Wazuh GPG key
+        shell: >-
+          set -o pipefail &&
+          gpg --show-keys --with-colons {{ playbook_dir }}/.preflight-GPG-KEY-WAZUH
+          | awk -F: '$1 == "fpr" { print $10; exit }'
+        args:
+          executable: /bin/bash
+        register: wazuh_preflight_fpr
+        changed_when: false
+
+      - name: Control node | Check that it is the Wazuh signing key
+        assert:
+          that: wazuh_preflight_fpr.stdout == wazuh_gpg_key_fingerprint
+          fail_msg: >-
+            The key at {{ wazuh_gpg_key_url }} has fingerprint '{{ wazuh_preflight_fpr.stdout }}', not
+            {{ wazuh_gpg_key_fingerprint }}. Something between this host and packages.wazuh.com is
+            changing it, or Wazuh rotated its key: check before installing anything.
+          quiet: true
+
+      - name: Control node | Remove the downloaded key
+        file:
+          path: "{{ playbook_dir }}/.preflight-GPG-KEY-WAZUH"
+          state: absent
+
+  - hosts: "{{ wazuh_preflight_hosts | default('all:!localhost') }}"
+    gather_facts: true
+    tasks:
+      - name: Check that the OS family is one the roles support
+        assert:
+          that: ansible_facts.os_family in ['RedHat', 'Debian', 'Windows', 'Darwin']
+          fail_msg: "{{ ansible_facts.distribution }} ({{ ansible_facts.os_family }}) is not supported by these roles."
+          quiet: true
+
+      - name: Check that this host reaches the Wazuh repositories
+        uri:
+          url: "https://packages.wazuh.com/{{ item }}"
+          method: HEAD
+        loop:
+          - key/GPG-KEY-WAZUH
+          - "4.x/{{ 'yum/repodata/repomd.xml' if ansible_facts.os_family == 'RedHat' else 'apt/dists/stable/InRelease' }}"
+        environment: "{{ {'https_proxy': wazuh_preflight_proxy} if wazuh_preflight_proxy is defined else {} }}"
+        when: ansible_facts.system == 'Linux'
+
+      - name: Warn when an indexer host has less memory than Wazuh requires
+        debug:
+          msg: >-
+            WARNING: {{ inventory_hostname }} has {{ ansible_facts.memtotal_mb }} MB of memory. The
+            Wazuh indexer needs 4 GB at least, 16 GB recommended.
+        when:
+          - ansible_facts.system == 'Linux'
+          - inventory_hostname in groups['wi_cluster'] | default([]) + groups['aio'] | default([])
+          - ansible_facts.memtotal_mb | int < 3800

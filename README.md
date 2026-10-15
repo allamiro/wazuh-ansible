@@ -10,6 +10,12 @@ These playbooks install and configure Wazuh agent, manager and indexer and dashb
 ## Branches
 
 - `main` branch contains the latest code, be aware of possible bugs on this branch.
+- `commercial` (this branch): the stable release v4.14.9, deployed from the public Wazuh
+  repositories, with pinned control node tooling (`requirements.txt`, `requirements.yml`) and
+  `playbooks/preflight.yml` to run first. Step by step:
+  `.claude/skills/wazuh-commercial-deploy/SKILL.md`.
+- `airgap`: the same stable release, deployed on hosts without internet access from an offline
+  bundle.
 
 ## Compatibility Matrix
 
