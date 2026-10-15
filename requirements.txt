@@ -1,0 +1,4 @@
+# Control node Python packages (Python 3.10 - 3.12).
+# ansible-core 2.16 is the last release that still manages targets running Python 3.6
+# (EL8 platform-python) and predates the 2.19 templating changes these roles were not written for.
+ansible-core==2.16.19

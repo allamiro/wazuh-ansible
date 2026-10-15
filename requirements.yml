@@ -1,0 +1,6 @@
+---
+collections:
+  # The wazuh-agent role's handlers reference win_* modules, so this collection is
+  # required even for Linux-only deployments (the playbook fails to parse without it).
+  - name: ansible.windows
+    version: "3.8.0"

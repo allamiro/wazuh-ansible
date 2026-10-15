@@ -12,3 +12,8 @@ Pipfile.lock
 molecule/**/es_certs/
 molecule/**/opendistro/
 repository_bumper_*.log
+
+# Generated deployment certificates (private keys) and local tooling
+playbooks/indexer/certificates/
+.venv/
+dist/

@@ -2,6 +2,8 @@
 filebeat_version: 7.10.2
 
 wazuh_template_branch: v4.14.9
+# Where the Wazuh alerts template is fetched from. Override it to point to an internal mirror.
+wazuh_template_url: "https://raw.githubusercontent.com/wazuh/wazuh/{{ wazuh_template_branch }}/extensions/elasticsearch/7.x/wazuh-template.json"
 
 filebeat_node_name: node-1
 
