@@ -10,6 +10,9 @@
 - include_vars: ../../vars/repo_staging.yml
   when: packages_repository == 'staging'
 
+- include_vars: ../../vars/repo_airgap.yml
+  when: packages_repository == 'airgap'
+
 - import_tasks: RedHat.yml
   when: ansible_facts.os_family == 'RedHat'
 

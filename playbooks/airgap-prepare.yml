@@ -1,0 +1,78 @@
+---
+# Run once before the Wazuh playbooks on hosts without internet access. It checks that every Linux
+# host reaches the internal mirror and adds the repository of OS packages from the offline bundle
+# (<mirror>/<os id>/<arch>/deps/), from which the roles install their dependencies. The roles add
+# the Wazuh repository themselves.
+#
+#   ansible-playbook -i inventory airgap-prepare.yml
+#
+# Needs wazuh_airgap_mirror_url in the inventory. Windows and macOS hosts are skipped: their agents
+# are downloaded from the mirror by the agent role.
+  - hosts: "{{ wazuh_airgap_prepare_hosts | default('all') }}"
+    gather_facts: true
+    vars_files:
+      - ../roles/wazuh/vars/repo_airgap.yml
+    tasks:
+      - name: Check that this host reaches the internal mirror
+        uri:
+          url: "{{ wazuh_airgap_mirror }}/key/GPG-KEY-WAZUH"
+          method: HEAD
+          validate_certs: "{{ wazuh_airgap_validate_certs | default(true) }}"
+        when: ansible_facts.system == 'Linux'
+
+      - name: Check that the bundle has packages for this OS and architecture
+        uri:
+          url: "{{ wazuh_airgap_repo_base }}/{{ 'wazuh/repodata/repomd.xml' if ansible_facts.os_family == 'RedHat' else 'wazuh/Packages.gz' }}"
+          method: HEAD
+          validate_certs: "{{ wazuh_airgap_validate_certs | default(true) }}"
+        register: wazuh_airgap_repo_check
+        failed_when: false
+        when: ansible_facts.system == 'Linux'
+
+      - name: Fail when the bundle was built without this OS and architecture
+        fail:
+          msg: >-
+            The mirror has no packages for {{ wazuh_airgap_os }}/{{ ansible_facts.architecture }}
+            ({{ wazuh_airgap_repo_base }}). Build the bundle with --targets {{ wazuh_airgap_os }}
+            --arch {{ ansible_facts.architecture }}, or set wazuh_airgap_os_id for this host.
+        when:
+          - ansible_facts.system == 'Linux'
+          - wazuh_airgap_repo_check.status | default(0) != 200
+
+      - name: RedHat | Add the repository of OS dependencies from the bundle
+        become: true
+        yum_repository:
+          name: wazuh_airgap_deps
+          description: Wazuh offline bundle - OS dependencies
+          baseurl: "{{ wazuh_airgap_repo_base }}/deps/"
+          gpgcheck: true
+          gpgkey: "{{ wazuh_airgap_repo_base }}/deps/RPM-GPG-KEY-DEPS"
+          # The bundle holds plain packages, without module metadata: EL8 would otherwise hide the
+          # ones that belong to a module stream.
+          module_hotfixes: true
+        when: ansible_facts.os_family == 'RedHat'
+
+      # Written as a file rather than with apt_repository, which needs python3-apt: on a host that
+      # lacks it, the apt task below installs it from this repository.
+      - name: Debian | Add the repository of OS dependencies from the bundle
+        become: true
+        copy:
+          dest: /etc/apt/sources.list.d/wazuh-airgap-deps.list
+          content: "deb [trusted=yes] {{ wazuh_airgap_repo_base }}/deps/ ./\n"
+          owner: root
+          group: root
+          mode: '0644'
+        when: ansible_facts.os_family == 'Debian'
+
+      - name: Debian | Install what Ansible and the roles need before anything else
+        become: true
+        apt:
+          name:
+            - acl
+            - ca-certificates
+            - gnupg
+            - python3-apt
+          state: present
+          update_cache: true
+          install_recommends: false
+        when: ansible_facts.os_family == 'Debian'

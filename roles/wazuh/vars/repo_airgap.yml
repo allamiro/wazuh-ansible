@@ -1,0 +1,46 @@
+# Package sources for hosts without internet access, loaded when packages_repository is 'airgap'.
+# Every URL points to an internal mirror built from an offline bundle (tools/airgap/build-bundle.sh),
+# laid out like packages.wazuh.com/4.x plus one package repository per OS and architecture:
+#
+#   <mirror>/key/GPG-KEY-WAZUH
+#   <mirror>/<certs_gen_tool_version>/wazuh-certs-tool.sh
+#   <mirror>/filebeat/{wazuh-filebeat-*.tar.gz,wazuh-template.json}
+#   <mirror>/windows/, <mirror>/checksums/, <mirror>/macos/
+#   <mirror>/<os id>/<arch>/wazuh/   Wazuh and Filebeat packages
+#   <mirror>/<os id>/<arch>/deps/    OS packages they need (configured by playbooks/airgap-prepare.yml)
+#
+# Set wazuh_airgap_mirror_url in the inventory (for example group_vars/all.yml). The OS id is derived
+# from the facts (el8, el9, ubuntu22, debian12, amazon2023...); set wazuh_airgap_os_id to override it.
+
+wazuh_airgap_mirror: "{{ wazuh_airgap_mirror_url | mandatory('Set wazuh_airgap_mirror_url to the URL of the internal Wazuh mirror (packages_repository is airgap).') | regex_replace('/+$', '') }}"
+wazuh_airgap_os: >-
+  {{ wazuh_airgap_os_id | default(
+       ('el' ~ ansible_facts.distribution_major_version)
+       if (ansible_facts.os_family == 'RedHat' and ansible_facts.distribution != 'Amazon')
+       else ((ansible_facts.distribution | lower) ~ ansible_facts.distribution_major_version), true) }}
+wazuh_airgap_repo_base: "{{ wazuh_airgap_mirror }}/{{ wazuh_airgap_os }}/{{ ansible_facts.architecture }}"
+
+# The internal apt repositories are flat and unsigned: the packages were checked against the signed
+# Wazuh and distribution repositories when the bundle was built, and the bundle against SHA256SUMS
+# when it was imported. RPMs keep their own signatures, which dnf checks.
+wazuh_repo:
+  keyring_path: '/usr/share/keyrings/wazuh.gpg'
+  apt: "deb [trusted=yes] {{ wazuh_airgap_repo_base }}/wazuh/ ./"
+  yum: "{{ wazuh_airgap_repo_base }}/wazuh/"
+  gpg: "{{ wazuh_airgap_mirror }}/key/GPG-KEY-WAZUH"
+  path: '/tmp/WAZUH-GPG-KEY'
+wazuh_winagent_config_url: "{{ wazuh_airgap_mirror }}/windows/wazuh-agent-{{ wazuh_agent_version }}-1.msi"
+wazuh_winagent_package_name: "wazuh-agent-{{ wazuh_agent_version }}-1.msi"
+wazuh_winagent_sha512_url: "{{ wazuh_airgap_mirror }}/checksums/wazuh/{{ wazuh_agent_version }}/wazuh-agent-{{ wazuh_agent_version }}-1.msi.sha512"
+filebeat_module_package_url: "{{ wazuh_airgap_mirror }}/filebeat"
+wazuh_template_url: "{{ wazuh_airgap_mirror }}/filebeat/wazuh-template.json"
+
+wazuh_macos_intel_package_name: "wazuh-agent-{{ wazuh_agent_version }}-1.intel64.pkg"
+wazuh_macos_arm_package_name: "wazuh-agent-{{ wazuh_agent_version }}-1.arm64.pkg"
+wazuh_macos_intel_package_url: "{{ wazuh_airgap_mirror }}/macos/{{ wazuh_macos_intel_package_name }}"
+wazuh_macos_arm_package_url: "{{ wazuh_airgap_mirror }}/macos/{{ wazuh_macos_arm_package_name }}"
+
+certs_gen_tool_version: "4.14"
+
+# Url of certificates generator tool
+certs_gen_tool_url: "{{ wazuh_airgap_mirror }}/{{ certs_gen_tool_version }}/wazuh-certs-tool.sh"

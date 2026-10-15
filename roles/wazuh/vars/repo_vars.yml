@@ -1,1 +1,2 @@
-packages_repository: production
+# production | pre-release | staging | airgap (internal mirror, see vars/repo_airgap.yml)
+packages_repository: airgap

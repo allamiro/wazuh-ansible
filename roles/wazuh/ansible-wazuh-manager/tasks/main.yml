@@ -54,6 +54,9 @@
 - include_vars: ../../vars/repo_staging.yml
   when: packages_repository == 'staging'
 
+- include_vars: ../../vars/repo_airgap.yml
+  when: packages_repository == 'airgap'
+
 - name: Overlay wazuh_manager_config on top of defaults
   set_fact:
     wazuh_manager_config: '{{ wazuh_manager_config_defaults | combine(config_layer, recursive=True) }}'

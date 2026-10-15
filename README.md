@@ -10,6 +10,13 @@ These playbooks install and configure Wazuh agent, manager and indexer and dashb
 ## Branches
 
 - `main` branch contains the latest code, be aware of possible bugs on this branch.
+- `airgap` (this branch): the stable release v4.14.9, deployed on hosts without internet access
+  from an internal mirror. `tools/airgap/build-bundle.sh` builds the offline bundle (Wazuh
+  packages, OS dependencies, Python wheels, Ansible collections) on a connected host and
+  `tools/airgap/test-bundle.sh` proves it installs offline;
+  `playbooks/airgap-prepare.yml` runs before the usual playbooks. Step by step:
+  `.claude/skills/wazuh-airgap-bundle/SKILL.md` and `.claude/skills/wazuh-airgap-deploy/SKILL.md`.
+- `commercial`: the same stable release, deployed from the public Wazuh repositories.
 
 ## Compatibility Matrix
 
